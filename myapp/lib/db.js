@@ -15,7 +15,7 @@ async function connect() {
         }
         await mongoose.disconnect();
     }
-    const db = await mongoose.connect(process.env.MONGO_URI);
+    const db = await mongoose.connect(process.env.MONGO_URL);
     connection.isConnected = db.connections[0].readyState;
 }
 
@@ -29,4 +29,3 @@ async function disconnect() {
 }
 const db = { connect, disconnect };
 export default db;
-

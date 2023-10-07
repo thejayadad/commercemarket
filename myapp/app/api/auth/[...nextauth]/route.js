@@ -1,39 +1,70 @@
-import NextAuth, {getServerSession} from 'next-auth'
-import GoogleProvider from 'next-auth/providers/google'
-import clientPromise from '@/lib/clientPromise';
-import { MongoDBAdapter } from '@auth/mongodb-adapter';
-
-
-const adminEmails = ['thejaydad@gmail.com'];
-
+import NextAuth from "next-auth";
+import CredentialsProvider from 'next-auth/providers/credentials'
+import User from "@/models/User";
+import { signJwtToken } from "@/lib/jwt";
+import bcrypt from 'bcrypt'
+import db from "@/lib/db";
 
 const handler = NextAuth({
-    secret: process.env.SECRET,
     providers: [
-        GoogleProvider({
-          clientId: process.env.GOOGLE_ID,
-          clientSecret: process.env.GOOGLE_SECRET
-        }),
-      ],
-      adapter: MongoDBAdapter(clientPromise),
-      callbacks: {
-        session: ({session,token,user}) => {
-          if (adminEmails.includes(session?.user?.email)) {
-            return session;
-          } else {
-            return false;
-          }
-        },
-      },
-  })
-  
-  export { handler as GET, handler as POST }
+        CredentialsProvider({
+            type: 'credentials',
+            credentials: {
+                username: {label: 'Email', type: 'text', placeholder: 'John Doe'},
+                password: {label: 'Password', type: 'password'}
+            },
+            async authorize(credentials, req){
+                const {email, password} = credentials
 
-  export async function isAdminRequest(req,res) {
-    const session = await getServerSession(req,res  );
-    if (!adminEmails.includes(session?.user?.email)) {
-      res.status(401);
-      res.end();
-      throw 'not an admin';
+                await db.connect()
+                                
+                const user = await User.findOne({ email })
+
+                if(!user){
+                    throw new Error("Invalid input")
+                }
+
+                // 2 parameters -> 
+                // 1 normal password -> 123123
+                // 2 hashed password -> dasuytfygdsaidsaugydsaudsadsadsauads
+                const comparePass = await bcrypt.compare(password, user.password)
+
+                if(!comparePass){
+                    throw new Error("Invalid input")
+                } else {
+                    const {password, ...currentUser} = user._doc
+
+                    const accessToken = signJwtToken(currentUser, {expiresIn: '6d'})
+
+                    return {
+                        ...currentUser,
+                        accessToken
+                    }
+                }
+            }
+        })
+    ],
+    pages: {
+        signIn: '/login'
+    },
+    callbacks: {
+        async jwt({token, user}){
+            if(user){
+                token.accessToken = user.accessToken
+                token._id = user._id
+            }
+
+            return token
+        },
+        async session({session, token}){
+            if(token){
+                session.user._id = token._id
+                session.user.accessToken = token.accessToken
+            }
+
+            return session
+        }
     }
-  }
+})
+
+export {handler as GET, handler as POST}
